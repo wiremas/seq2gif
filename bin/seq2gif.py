@@ -10,6 +10,16 @@ import PIL.Image as pil
 
 
 class Seq2Gif(object):
+    """ Seq2Gif - convert image sequence to gif.
+    init with arguments defined by argparser. input and output will be validated
+
+    Args:
+        args (dict):
+            input (list of string): input image sequence or path with wildcard (* or ?)
+            output (string): path where the gif will be wirtten
+            framesPerSecond (int): you got it
+            size (list of 4 int): crop and/resize output
+    """
 
     def __init__(self, args):
 
@@ -43,12 +53,11 @@ class Seq2Gif(object):
             return images
 
     def validate_output(self, output_name):
-        """ validate out puth.
-        :param output_name: output file name """
+        """ validate out path. """
 
         output_name = os.path.realpath(os.path.expanduser(output_name)).strip()
         if os.path.isfile(output_name):
-            if not user_confirmation('File already exists: {}\nOverwrite? (Y)es/(N)o?\n>> '.format(output_name)):
+            if not user_confirmation('File already exists: {}\nOverwrite? (y)es/(n)o?\n>> '.format(output_name)):
                 sys.stdout.write('Aborted by user\n')
                 return
         elif os.path.isdir(output_name):
@@ -64,7 +73,8 @@ class Seq2Gif(object):
         return output_name
 
     def validate_size(self, size):
-        """ validate resize argument. """
+        """ validate resize argument.
+        return size if input was valid else None """
 
         def int_float(val):
             return float(int(val))
@@ -85,6 +95,7 @@ class Seq2Gif(object):
         return size
 
     def run_command(self):
+        """ run the actual command """
 
         if self.images and self.output_name:
             try:
@@ -97,17 +108,14 @@ class Seq2Gif(object):
                     result.show()
             finally:
                 map(os.remove, self.tmp_files)
-        else:
-            'foo'
 
     def write_gif(self):
+        """ write all stored images to gif """
 
         frames = []
         for i, img in enumerate(self.images):
             img = os.path.realpath(os.path.expanduser(img))
-            # TODO validate path
 
-            # resize / crop
             if self.size:
                 size = [float(s) for s in self.size]
                 img = self.resize(img, *size)
@@ -117,10 +125,11 @@ class Seq2Gif(object):
 
         progress(i + 1, len(self.images) + 1, 'writing gif: {}'.format(self.output_name))
         imageio.mimwrite(self.output_name, frames, format='gif', fps=self.fps)
-        progress(2, 2, 'Done writing: {}\n'.format(self.output_name))
-
+        progress(10, 10, 'Done writing: {}\n'.format(self.output_name))
 
     def resize(self, image, pos_x, pos_y, width, height):
+        """ resize the given image.
+        return name of the new resized temp file """
 
         if pos_x < pos_x + width and pos_y < pos_y + height:
             tmp_dir = tempfile.gettempdir()
@@ -138,7 +147,6 @@ class Seq2Gif(object):
             cropped_img.close()
 
             return tmp_name
-
 
 def user_confirmation(msg):
     """ user confirmation. simple yes/no question.
@@ -163,9 +171,6 @@ def progress(count, total, msg=''):
 
     sys.stdout.write('[{}] {}% - {}\r'.format(bar, percents, msg))
     sys.stdout.flush()
-
-
-
 
 if __name__ == '__main__':
 
