@@ -8,27 +8,99 @@ import tempfile
 import argparse
 import PIL.Image as pil
 
+class Image(object):
+    def __init__(self, path):
+        self.path = self._validate_path(path)
+        self.image = pil.open(path)
+
+    def _validate_path(self, path):
+        path = os.path.realpath(os.path.expanduser(path))
+        if os.path.isfile(path):
+            return path
+        else:
+            raise RuntimeError('File does not exist: {}'.format(path))
+
+    def resize(self, size):
+        """ resize the image. this method accepts three types of arguments.
+        1. size (str) : a number followed by a % sign. scales the image
+                        by the given percentage.
+        2. size (int) : define the width of the new image. the height will
+                        be scaled proportional.
+        3. size (int, int) : define width and height of the new image. """
+
+        err_msg = 'Invalid use of argument "resize": \n {}'.format(self.resize.__doc__)
+        width = height = 0.0
+        if len(size) == 1:
+            if isinstance(size[0], str):
+                if size[0].endswith('%'):
+                    try:
+                        width = (self.image.size[0] * int(size[0][:-1])) / 100
+                        height = (self.image.size[1] * int(size[0][:-1])) / 100
+                    except ValueError:
+                        raise RuntimeError(err_msg)
+                else:
+                    try:
+                        width = int(size[0])
+                        height = int(self.image.size[1] / (self.image.size[0] / float(width)))
+                    except ValueError:
+                        raise RuntimeError(err_msg)
+        elif len(size) == 2:
+            try:
+                width, height = [int(length) for length in size]
+            except ValueError:
+                raise RuntimeError(err_msg)
+        else:
+            raise RuntimeError(err_msg)
+        self.image = self.image.resize((width, height), pil.ANTIALIAS)
+
+    def crop(self, crop_size):
+        """ crop the image. the crop_size argument should have eitgher of two formats.
+        1. crop_size (int, int) : define width and height of the cropped image
+                                starting from the top left corner of the image.
+        2. crop_size (int, int, int, int) : define the starting position, from
+                                the top left corner as well ass width and
+                                height. """
+
+
+        def int_float(val):
+            return float(int(val))
+
+        err_msg = 'Invalid use of argument "crop": \n {}'.format(self.crop.__doc__)
+        if crop_size:
+            try:
+                crop_size = map(int_float, crop_size)
+                if len(crop_size) == 2:
+                    [crop_size.insert(0, 0.0) for _ in range(2)]
+                elif len(crop_size) != 4:
+                    raise RuntimeError(err_msg)
+            except ValueError:
+                raise RuntimeError(err_msg)
+        self.image = self.image.crop(crop_size)
+
+    def write(self, path):
+        pass
+
+    def write_temp(self, suffix='_tmp'):
+        tmp_dir = tempfile.gettempdir()
+        tmp_name = list(os.path.splitext(os.path.basename(self.path)))
+        tmp_name.insert(1, suffix)
+        tmp_name = os.path.join(tmp_dir, ''.join(tmp_name))
+        self.image.save(tmp_name)
+        self.path = tmp_name
+        return self.path
+
 
 class Seq2Gif(object):
-    """ Seq2Gif - convert image sequence to gif.
-    init with arguments defined by argparser. input and output will be validated
-
-    Args:
-        args (dict):
-            input (list of string): input image sequence or path with wildcard (* or ?)
-            output (string): path where the gif will be wirtten
-            framesPerSecond (int): you got it
-            size (list of 4 int): crop and/resize output
-    """
+    """ Seq2Gif - convert image sequence to gif.  """
 
     def __init__(self, args):
 
-        self.images = self.validate_input(args['input'])
+        self.images = [Image(path) for path in self.validate_input(args['input'])]
         self.output_name = self.validate_output(args['output'])
         self.fps = float(args['framesPerSecond'])
-        self.size = self.validate_size(args['resize'])
+        self.size = args['resize']
+        self.crop_size = args['crop']
         self.show = args['show']
-
         self.tmp_files = []
 
     def validate_input(self, images):
@@ -40,16 +112,15 @@ class Seq2Gif(object):
                 wild_card_path = os.path.realpath(os.path.expanduser(images[0]))
                 images = sorted(glob.glob(wild_card_path))
                 if not images:
-                    sys.stderr.write('Could not find a valid image sequence')
+                    raise RuntimeError('Could not find a valid image sequence')
                 else:
                     return images
             else:
-                sys.stderr.write('Not enough input. Only one image given. Use "*" as wildcard to detect an image sequence')
+                raise RuntimeError('Not enough input. Only one image given. Use "*" as wildcard to detect an image sequence')
         else:
             for img in images:
                 if not os.path.isfile(img):
-                    sys.stderr.write('File does not exist: {}'.format(img))
-                    return
+                    raise RuntimeError('File does not exist: {}'.format(img))
             return images
 
     def validate_output(self, output_name):
@@ -58,41 +129,15 @@ class Seq2Gif(object):
         output_name = os.path.realpath(os.path.expanduser(output_name)).strip()
         if os.path.isfile(output_name):
             if not user_confirmation('File already exists: {}\nOverwrite? (y)es/(n)o?\n>> '.format(output_name)):
-                sys.stdout.write('Aborted by user\n')
-                return
+                raise RuntimeError('Aborted by user\n')
         elif os.path.isdir(output_name):
-            sys.stdout.write('Output argument must be a file not directory')
-            return
+            raise RuntimeError('Output argument must be a file not directory')
         elif not os.path.isdir(os.path.dirname(output_name)):
-            sys.stdout.write('Output directory "{}" does not exist\n'.format(os.path.dirname(output_name)))
-            return
+            raise RuntimeError('Output directory "{}" does not exist\n'.format(os.path.dirname(output_name)))
         elif os.path.splitext(output_name)[-1] != '.gif':
             path, ext = os.path.splitext(output_name)
             output_name = '{}.gif'.format(path)
-
         return output_name
-
-    def validate_size(self, size):
-        """ validate resize argument.
-        return size if input was valid else None """
-
-        def int_float(val):
-            return float(int(val))
-
-        if size:
-            valid = True
-            try:
-                size = map(int_float, size)
-                if len(size) != 4:
-                    valid = False
-            except ValueError:
-                valid = False
-
-            if not valid:
-                sys.stderr.write('Invalid argument --size int(x) int(y) int(h) int(w)')
-                return
-
-        return size
 
     def run_command(self):
         """ run the actual command """
@@ -114,39 +159,22 @@ class Seq2Gif(object):
 
         frames = []
         for i, img in enumerate(self.images):
-            img = os.path.realpath(os.path.expanduser(img))
 
-            if self.size:
-                size = [float(s) for s in self.size]
-                img = self.resize(img, *size)
+            progress(i, len(self.images) + 1, 'reading image: {}'.format(os.path.basename(img.path)))
 
-            progress(i, len(self.images) + 1, 'reading image: {}'.format(os.path.basename(img)))
-            frames.append(imageio.imread(img))
+            if self.crop_size or self.size:
+                if self.crop_size:
+                    img.crop(self.crop_size)
+                if self.size:
+                    img.resize(self.size)
+                self.tmp_files.append(img.write_temp())
+
+            frames.append(imageio.imread(img.path))
 
         progress(i + 1, len(self.images) + 1, 'writing gif: {}'.format(self.output_name))
         imageio.mimwrite(self.output_name, frames, format='gif', fps=self.fps)
         progress(10, 10, 'Done writing: {}\n'.format(self.output_name))
 
-    def resize(self, image, pos_x, pos_y, width, height):
-        """ resize the given image.
-        return name of the new resized temp file """
-
-        if pos_x < pos_x + width and pos_y < pos_y + height:
-            tmp_dir = tempfile.gettempdir()
-
-            tmp_name = list(os.path.splitext(os.path.basename(image)))
-            tmp_name.insert(1, '_tmp')
-            tmp_name = os.path.join(tmp_dir, ''.join(tmp_name))
-            self.tmp_files.append(tmp_name)
-
-            image = pil.open(image)
-            cropped_img = image.crop((pos_x, pos_y, pos_x + width, pos_y + height))
-            cropped_img.save(tmp_name)
-
-            image.close()
-            cropped_img.close()
-
-            return tmp_name
 
 def user_confirmation(msg):
     """ user confirmation. simple yes/no question.
@@ -179,6 +207,7 @@ if __name__ == '__main__':
     parser.add_argument('-i', '--input', help='input filename. use * wildcard to find sequence', nargs='+', required=True)
     parser.add_argument('-fps', '--framesPerSecond', help='frames per secons', default=10)
     parser.add_argument('-r', '--resize', help='resize', default='', nargs='+')
+    parser.add_argument('-c', '--crop', help='crop', default='', nargs='+')
     parser.add_argument('-s', '--show', help='show gif', action='store_true')
 
     args = vars(parser.parse_args())
