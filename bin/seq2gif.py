@@ -59,7 +59,8 @@ class Image(object):
                                 starting from the top left corner of the image.
         2. crop_size (int, int, int, int) : define the starting position, from
                                 the top left corner as well ass width and
-                                height. """
+                                height. note: position x must be < width and
+                                              position y must be < height! """
 
 
         def int_float(val):
@@ -71,7 +72,15 @@ class Image(object):
                 crop_size = map(int_float, crop_size)
                 if len(crop_size) == 2:
                     [crop_size.insert(0, 0.0) for _ in range(2)]
-                elif len(crop_size) != 4:
+                elif len(crop_size) == 4:
+                    if crop_size[0] >= crop_size[2]\
+                    or crop_size[1] >= crop_size[3]:
+                        raise RuntimeError(err_msg)
+                    else:
+                        crop_size = (crop_size[0], crop_size[1],
+                                    crop_size[0] + crop_size[2],
+                                    crop_size[1] + crop_size[3])
+                else:
                     raise RuntimeError(err_msg)
             except ValueError:
                 raise RuntimeError(err_msg)
@@ -129,7 +138,8 @@ class Seq2Gif(object):
         output_name = os.path.realpath(os.path.expanduser(output_name)).strip()
         if os.path.isfile(output_name):
             if not user_confirmation('File already exists: {}\nOverwrite? (y)es/(n)o?\n>> '.format(output_name)):
-                raise RuntimeError('Aborted by user\n')
+                sys.stdout.write('Aborted by user\n')
+                return
         elif os.path.isdir(output_name):
             raise RuntimeError('Output argument must be a file not directory')
         elif not os.path.isdir(os.path.dirname(output_name)):
@@ -160,18 +170,16 @@ class Seq2Gif(object):
         frames = []
         for i, img in enumerate(self.images):
 
-            progress(i, len(self.images) + 1, 'reading image: {}'.format(os.path.basename(img.path)))
-
+            progress(i, len(self.images) + 1, 'reading image: "{}"'.format(os.path.basename(img.path)))
             if self.crop_size or self.size:
                 if self.crop_size:
                     img.crop(self.crop_size)
                 if self.size:
                     img.resize(self.size)
                 self.tmp_files.append(img.write_temp())
-
             frames.append(imageio.imread(img.path))
 
-        progress(i + 1, len(self.images) + 1, 'writing gif: {}'.format(self.output_name))
+        progress(i + 1, len(self.images) + 1, 'writing gif: "{}"'.format(self.output_name))
         imageio.mimwrite(self.output_name, frames, format='gif', fps=self.fps)
         progress(10, 10, 'Done writing: {}\n'.format(self.output_name))
 
